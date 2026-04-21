@@ -91,8 +91,6 @@ export default function AudioRecorder(props: {
     };
 
     useEffect(() => {
-        let stream: MediaStream | null = null;
-
         if (recording) {
             const timer = setInterval(() => {
                 setDuration((prevDuration) => prevDuration + 1);
@@ -104,8 +102,11 @@ export default function AudioRecorder(props: {
         }
 
         return () => {
-            if (stream) {
-                stream.getTracks().forEach((track) => track.stop());
+            if (streamRef.current) {
+                streamRef.current
+                    .getTracks()
+                    .forEach((track: MediaStreamTrack) => track.stop());
+                streamRef.current = null;
             }
         };
     }, [recording]);

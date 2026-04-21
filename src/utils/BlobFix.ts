@@ -303,6 +303,14 @@ function padHex(hex: string) {
     return hex.length % 2 === 1 ? "0" + hex : hex;
 }
 
+function toArrayBuffer(bufferLike: ArrayBufferLike): ArrayBuffer {
+    if (bufferLike instanceof ArrayBuffer) {
+        return bufferLike;
+    }
+
+    return new Uint8Array(bufferLike).slice().buffer;
+}
+
 class WebmFloat extends WebmBase<number> {
     constructor(name: string, type: string) {
         super(name, type || "Float");
@@ -316,7 +324,9 @@ class WebmFloat extends WebmBase<number> {
     updateBySource() {
         const byteArray = this.source!.reverse();
         const floatArrayType = this.getFloatArrayType();
-        const floatArray = new floatArrayType(byteArray.buffer);
+        const floatArray = new floatArrayType(
+            toArrayBuffer(byteArray.buffer),
+        );
         this.data! = floatArray[0];
     }
     updateByData() {
@@ -505,7 +515,7 @@ class WebmFile extends WebmContainer {
     }
 
     toBlob(type = "video/webm") {
-        return new Blob([this.source!.buffer], { type });
+        return new Blob([toArrayBuffer(this.source!.buffer)], { type });
     }
 }
 

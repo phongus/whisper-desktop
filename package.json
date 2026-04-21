@@ -1,10 +1,14 @@
 {
-  "name": "whisper-web",
-  "private": true,
-  "version": "0.0.0",
+  "name": "whisper-desktop",
+  "private": false,
+  "version": "1.0.4",
+  "description": "Electron desktop app for local Whisper transcription using Transformers.js",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
+    "electron:dev": "concurrently \"vite --port 5174\" \"wait-on -t 10000 http-get://localhost:5174 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "vite build && electron-builder --win",
     "clean": "rm -rf node_modules/ dist/",
     "build": "tsc && vite build",
     "preview": "vite preview",
@@ -27,6 +31,10 @@
     "@typescript-eslint/parser": "^5.57.0",
     "@vitejs/plugin-react": "^3.1.0",
     "autoprefixer": "^10.4.14",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^41.2.1",
+    "electron-builder": "^26.8.1",
     "eslint": "^8.37.0",
     "eslint-config-prettier": "^8.8.0",
     "eslint-config-standard-with-typescript": "^34.0.1",
@@ -39,11 +47,39 @@
     "postcss": "^8.4.21",
     "prettier": "^2.8.7",
     "tailwindcss": "^3.2.7",
-    "typescript": "^4.9.5",
-    "vite": "^4.2.0"
+    "typescript": "^5.9.3",
+    "vite": "^4.2.0",
+    "wait-on": "^9.0.5"
   },
+  "build": {
+    "appId": "com.whisper.desktop",
+    "productName": "Whisper Desktop",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "icon": "public/icon.ico",
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "keywords": [
+    "electron",
+    "react",
+    "whisper",
+    "speech-to-text",
+    "transcription",
+    "transformers.js"
+  ],
+  "author": "Phong Tran",
+  "license": "MIT",
   "overrides": {
     "semver": "^7.5.3",
-    "protobufjs": "^7.2.4"
+    "protobufjs": "^7.2.4",
+    "sharp": "file:./stubs/sharp"
   }
 }

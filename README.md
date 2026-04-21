@@ -1,30 +1,70 @@
-# Whisper Web
+# Whisper Desktop
 
-ML-powered speech recognition directly in your browser! Built with [🤗 Transformers.js](https://github.com/xenova/transformers.js).
+Whisper Desktop is an Electron + React desktop app for local speech transcription with Whisper running through Transformers.js in a Web Worker.
 
-Check out the demo site [here](https://huggingface.co/spaces/Xenova/whisper-web). 
+It is derived from Xenova's whisper-web project and adapts that browser-first implementation into a desktop workflow with Electron packaging, file input, microphone recording, and local model execution.
 
-> [!IMPORTANT]  
-> Experimental WebGPU support has been added to [this branch](https://github.com/xenova/whisper-web/tree/experimental-webgpu) ([demo](https://huggingface.co/spaces/Xenova/whisper-webgpu)), if you'd like to run with GPU acceleration!
+## Status
 
-https://github.com/xenova/whisper-web/assets/26504141/fb170d84-9678-41b5-9248-a112ecc74c27
+This project is usable, but it should be treated as an early public alpha.
 
-## Running locally
+What works today:
+- Local transcription in a desktop app
+- Audio input from file, URL, or microphone recording
+- Model download and caching through Hugging Face
+- Transcript export as TXT and JSON
 
-1. Clone the repo and install dependencies:
+What is not shipped yet:
+- Speaker diarization
+- Polished cross-platform installers
+- Production hardening for broad non-technical distribution
 
-    ```bash
-    git clone https://github.com/xenova/whisper-web.git
-    cd whisper-web
-    npm install
-    ```
+## Current platform support
 
-2. Run the development server:
+The packaged installer is currently Windows-first. The development setup should still run anywhere Electron and Node are supported, but the release flow in this repository is aimed at Windows builds.
 
-    ```bash
-    npm run dev
-    ```
-    > Firefox users need to change the `dom.workers.modules.enabled` setting in `about:config` to `true` to enable Web Workers.
-    > Check out [this issue](https://github.com/xenova/whisper-web/issues/8) for more details.
+## Quick start
 
-3. Open the link (e.g., [http://localhost:5173/](http://localhost:5173/)) in your browser.
+### Development
+
+```bash
+npm install
+npm run electron:dev
+```
+
+This starts Vite on port 5174 and launches Electron against the dev server.
+
+### Production build
+
+```bash
+npm install
+npm run electron:build
+```
+
+This builds the renderer and creates a Windows installer with electron-builder.
+
+## How it works
+
+- React renders the desktop UI
+- Vite builds the renderer
+- Electron hosts the app shell
+- A Web Worker loads Whisper via `@xenova/transformers`
+- Audio is resampled to 16 kHz before inference
+- Model files are downloaded on first use and then cached locally
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the implementation overview.
+
+## Limitations
+
+- First run may take time because Whisper model files need to be downloaded
+- Performance depends heavily on local CPU and available system resources
+- Large audio files can take noticeable time to decode and transcribe
+- No speaker labels yet
+
+## Attribution
+
+This project builds on the original whisper-web work by Xenova:
+- Upstream project: https://github.com/xenova/whisper-web
+- Transformers.js: https://github.com/xenova/transformers.js
+
+The repository keeps the original MIT license and should be understood as a desktop adaptation of that foundation.
