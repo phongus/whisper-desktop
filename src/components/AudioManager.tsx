@@ -446,7 +446,100 @@ function SettingsModal(props: {
                                 Quantized
                             </label>
                         </div>
+                        <div className='flex'>
+                            <input
+                                id='diarize'
+                                type='checkbox'
+                                checked={props.transcriber.diarize}
+                                disabled={
+                                    props.transcriber.diarizationStatus
+                                        .state !== "available"
+                                }
+                                onChange={(e) => {
+                                    props.transcriber.setDiarize(
+                                        e.target.checked,
+                                    );
+                                }}
+                            ></input>
+                            <label
+                                htmlFor={"diarize"}
+                                className='ms-1'
+                                title={
+                                    props.transcriber.diarizationStatus
+                                        .state === "unavailable"
+                                        ? props.transcriber.diarizationStatus
+                                              .reason
+                                        : props.transcriber.diarizationStatus
+                                                .state === "probing"
+                                          ? "Checking diarization backend..."
+                                          : undefined
+                                }
+                            >
+                                Diarize speakers
+                                {props.transcriber.diarizationStatus.state ===
+                                    "probing" && " (checking…)"}
+                                {props.transcriber.diarizationStatus.state ===
+                                    "unavailable" && " (unavailable)"}
+                            </label>
+                        </div>
                     </div>
+                    <div className='flex items-center mb-3 px-1'>
+                        <input
+                            id='cleanAudio'
+                            type='checkbox'
+                            checked={props.transcriber.cleanAudio}
+                            disabled={!props.transcriber.cleanAudioAvailable}
+                            onChange={(e) => {
+                                props.transcriber.setCleanAudio(
+                                    e.target.checked,
+                                );
+                            }}
+                        ></input>
+                        <label
+                            htmlFor='cleanAudio'
+                            className='ms-1'
+                            title={
+                                props.transcriber.cleanAudioAvailable
+                                    ? "Apply ffmpeg high-pass + denoise + loudness normalize before transcription. Adds a few seconds per minute of audio."
+                                    : "ffmpeg is not bundled in this build."
+                            }
+                        >
+                            Clean up audio (denoise + normalize)
+                            {!props.transcriber.cleanAudioAvailable &&
+                                " (unavailable)"}
+                        </label>
+                    </div>
+                    {props.transcriber.diarize && (
+                        <div className='flex items-center mb-3 px-1'>
+                            <label
+                                htmlFor='numSpeakers'
+                                className='mr-2 text-sm'
+                            >
+                                Number of speakers:
+                            </label>
+                            <select
+                                id='numSpeakers'
+                                className='bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg p-1.5'
+                                value={props.transcriber.numSpeakers}
+                                onChange={(e) => {
+                                    props.transcriber.setNumSpeakers(
+                                        Number(e.target.value),
+                                    );
+                                }}
+                            >
+                                <option value={0}>Auto</option>
+                                <option value={2}>2</option>
+                                <option value={3}>3</option>
+                                <option value={4}>4</option>
+                                <option value={5}>5</option>
+                                <option value={6}>6</option>
+                            </select>
+                            <span className='ml-2 text-xs text-gray-500'>
+                                Tip: setting an exact count usually improves
+                                accuracy.
+                            </span>
+                        </div>
+                    )}
                     {props.transcriber.multilingual && (
                         <>
                             <label>Select the source language.</label>

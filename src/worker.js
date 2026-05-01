@@ -178,5 +178,30 @@ const transcribe = async (
         return null;
     });
 
+    if (output) {
+        // Re-decode the captured token chunks with word-level timestamps so
+        // diarization can assign speakers per word (much more accurate at
+        // speaker-turn boundaries than coarse segment timestamps). Failure
+        // here is non-fatal — fall back to segment-level chunks.
+        try {
+            const wordData = transcriber.tokenizer._decode_asr(
+                chunks_to_process,
+                {
+                    time_precision: time_precision,
+                    return_timestamps: "word",
+                    force_full_sequences: false,
+                },
+            );
+            // _decode_asr returns [text, { chunks }].
+            const words = wordData?.[1]?.chunks ?? wordData?.chunks;
+            if (Array.isArray(words)) {
+                output.words = words;
+            }
+        } catch (e) {
+            // Word-level decode is best-effort.
+            console.warn("word-level decode failed:", e);
+        }
+    }
+
     return output;
 };
