@@ -4,6 +4,7 @@ import Constants from "../utils/Constants";
 import {
     assignSpeakers,
     DiarizedSegment,
+    normalizeSpeakerSegments,
     SpeakerSegment,
 } from "../utils/Diarization";
 import { encodeWavMono16 } from "../utils/WavEncoder";
@@ -67,6 +68,9 @@ export interface Transcriber {
     setLanguage: (language: string) => void;
     diarize: boolean;
     setDiarize: (diarize: boolean) => void;
+    /** Enables 1:1-specific diarization heuristics (two-speaker fallback + stronger smoothing). */
+    oneOnOneMode: boolean;
+    setOneOnOneMode: (enabled: boolean) => void;
     diarizationStatus: DiarizationStatus;
     /** 0 = auto-detect, otherwise an exact speaker count. */
     numSpeakers: number;
@@ -84,6 +88,7 @@ export function useTranscriber(): Transcriber {
     const [isBusy, setIsBusy] = useState(false);
     const [isModelLoading, setIsModelLoading] = useState(false);
     const [diarize, setDiarize] = useState<boolean>(false);
+    const [oneOnOneMode, setOneOnOneMode] = useState<boolean>(false);
     const [numSpeakers, setNumSpeakers] = useState<number>(0); // 0 = auto
     const [cleanAudio, setCleanAudio] = useState<boolean>(false);
     const [cleanAudioAvailable, setCleanAudioAvailable] =
@@ -172,6 +177,13 @@ export function useTranscriber(): Transcriber {
     const diarizationPromiseRef = useRef<Promise<SpeakerSegment[]> | null>(
         null,
     );
+    // Keep the latest speaker-count preference for the worker callback, which
+    // is registered once and otherwise captures stale render state.
+    const numSpeakersRef = useRef(numSpeakers);
+    const oneOnOneModeRef = useRef(oneOnOneMode);
+    // WAV bytes used for diarization; retained briefly so we can perform a
+    // forced two-speaker retry when auto mode collapses to a single speaker.
+    const diarizationWavRef = useRef<Uint8Array | null>(null);
     // Probe promise so postRequest can await an in-flight probe instead of
     // silently skipping diarization when the user hits Transcribe before the
     // initial probe finishes.
@@ -179,6 +191,12 @@ export function useTranscriber(): Transcriber {
     useEffect(() => {
         diarizeRef.current = diarize;
     }, [diarize]);
+    useEffect(() => {
+        numSpeakersRef.current = numSpeakers;
+    }, [numSpeakers]);
+    useEffect(() => {
+        oneOnOneModeRef.current = oneOnOneMode;
+    }, [oneOnOneMode]);
 
     const [progressItems, setProgressItems] = useState<ProgressItem[]>([]);
 
@@ -233,7 +251,7 @@ export function useTranscriber(): Transcriber {
 
                     if (pending) {
                         pending
-                            .then((segs) => {
+                            .then(async (segs) => {
                                 // Prefer word-level chunks for diarization
                                 // assignment when available — they avoid the
                                 // "sentence straddles two speakers" failure
@@ -243,9 +261,54 @@ export function useTranscriber(): Transcriber {
                                     completeMessage.data.words.length > 0
                                         ? completeMessage.data.words
                                         : completeMessage.data.chunks;
+                                let resolvedSegments = oneOnOneModeRef.current
+                                    ? normalizeSpeakerSegments(segs)
+                                    : segs;
+
+                                // Auto-mode fallback for 1:1 meetings: if the
+                                // backend collapsed everyone into one speaker,
+                                // retry once with an explicit two-speaker
+                                // constraint and keep whichever result finds
+                                // more distinct speakers.
+                                const speakerCount = new Set(
+                                    resolvedSegments.map((s) => s.speaker),
+                                ).size;
+                                if (
+                                    oneOnOneModeRef.current &&
+                                    numSpeakersRef.current === 0 &&
+                                    speakerCount < 2 &&
+                                    sourceChunks.length >= 25 &&
+                                    diarizationWavRef.current &&
+                                    typeof window !== "undefined" &&
+                                    window.api
+                                ) {
+                                    try {
+                                        const forced =
+                                            await window.api.diarize(
+                                                diarizationWavRef.current,
+                                                { numSpeakers: 2 },
+                                            );
+                                        const forcedSegments =
+                                            normalizeSpeakerSegments(forced);
+                                        const forcedSpeakerCount = new Set(
+                                            forcedSegments.map(
+                                                (s) => s.speaker,
+                                            ),
+                                        ).size;
+                                        if (forcedSpeakerCount > speakerCount) {
+                                            resolvedSegments = forcedSegments;
+                                        }
+                                    } catch (retryErr) {
+                                        console.warn(
+                                            "Two-speaker fallback failed:",
+                                            retryErr,
+                                        );
+                                    }
+                                }
+
                                 const merged = assignSpeakers(
                                     sourceChunks,
-                                    segs,
+                                    resolvedSegments,
                                 );
                                 setTranscript((prev) =>
                                     prev
@@ -256,6 +319,7 @@ export function useTranscriber(): Transcriber {
                                           }
                                         : prev,
                                 );
+                                diarizationWavRef.current = null;
                             })
                             .catch((err) => {
                                 const reason =
@@ -279,6 +343,7 @@ export function useTranscriber(): Transcriber {
                                     state: "unavailable",
                                     reason,
                                 });
+                                diarizationWavRef.current = null;
                             });
                     }
                 }
@@ -418,6 +483,7 @@ export function useTranscriber(): Transcriber {
                             audio,
                             Constants.SAMPLING_RATE,
                         );
+                        diarizationWavRef.current = wav;
                         const opts: { numSpeakers?: number } = {};
                         if (numSpeakers > 0) opts.numSpeakers = numSpeakers;
                         diarizationPromiseRef.current =
@@ -425,9 +491,11 @@ export function useTranscriber(): Transcriber {
                     } catch (err) {
                         console.error("Failed to start diarization:", err);
                         diarizationPromiseRef.current = null;
+                        diarizationWavRef.current = null;
                     }
                 } else {
                     diarizationPromiseRef.current = null;
+                    diarizationWavRef.current = null;
                 }
 
                 webWorker.postMessage({
@@ -464,6 +532,8 @@ export function useTranscriber(): Transcriber {
             setLanguage,
             diarize,
             setDiarize,
+            oneOnOneMode,
+            setOneOnOneMode,
             diarizationStatus,
             numSpeakers,
             setNumSpeakers,
@@ -483,6 +553,7 @@ export function useTranscriber(): Transcriber {
         subtask,
         language,
         diarize,
+        oneOnOneMode,
         diarizationStatus,
         numSpeakers,
         cleanAudio,

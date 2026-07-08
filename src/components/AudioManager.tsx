@@ -482,6 +482,26 @@ function SettingsModal(props: {
                                     "unavailable" && " (unavailable)"}
                             </label>
                         </div>
+                        <div className='flex'>
+                            <input
+                                id='oneOnOneMode'
+                                type='checkbox'
+                                checked={props.transcriber.oneOnOneMode}
+                                disabled={!props.transcriber.diarize}
+                                onChange={(e) => {
+                                    props.transcriber.setOneOnOneMode(
+                                        e.target.checked,
+                                    );
+                                }}
+                            ></input>
+                            <label
+                                htmlFor='oneOnOneMode'
+                                className='ms-1'
+                                title='Enable only for two-person meetings. Applies stronger diarization smoothing and an auto retry with 2 speakers if auto mode collapses to one.'
+                            >
+                                1:1 meeting mode
+                            </label>
+                        </div>
                     </div>
                     <div className='flex items-center mb-3 px-1'>
                         <input
@@ -535,8 +555,8 @@ function SettingsModal(props: {
                                 <option value={6}>6</option>
                             </select>
                             <span className='ml-2 text-xs text-gray-500'>
-                                Tip: setting an exact count usually improves
-                                accuracy.
+                                Tip: for 1:1 meetings, set this to 2 for more
+                                reliable speaker separation.
                             </span>
                         </div>
                     )}

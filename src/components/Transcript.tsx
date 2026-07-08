@@ -47,6 +47,16 @@ export default function Transcript({ transcribedData }: Props) {
     const [editing, setEditing] = useState<EditingState>(null);
     // Draft text for the rename input.
     const [renameDraft, setRenameDraft] = useState("");
+    // Indices of transcript rows selected for bulk reassignment.
+    const [selectedSegmentIndices, setSelectedSegmentIndices] = useState<
+        number[]
+    >([]);
+    // Anchor index used for Shift+click range selection.
+    const [selectionAnchor, setSelectionAnchor] = useState<number | null>(
+        null,
+    );
+    // Selected speaker target used by the bulk assign controls.
+    const [bulkSpeakerTarget, setBulkSpeakerTarget] = useState("");
 
     // Reset all per-transcript edits when the segments reference changes
     // (i.e. a new transcription started). Same audio re-rendered = same
@@ -60,6 +70,9 @@ export default function Transcript({ transcribedData }: Props) {
             setOverrides({});
             setExtraSpeakers([]);
             setEditing(null);
+            setSelectedSegmentIndices([]);
+            setBulkSpeakerTarget("");
+            setSelectionAnchor(null);
         }
     }, [segments]);
 
@@ -73,6 +86,16 @@ export default function Transcript({ transcribedData }: Props) {
     }, [segments, extraSpeakers]);
 
     const displayName = (id: string) => nameMap[id] ?? id;
+
+    useEffect(() => {
+        if (allSpeakerIds.length === 0) {
+            if (bulkSpeakerTarget !== "") setBulkSpeakerTarget("");
+            return;
+        }
+        if (!bulkSpeakerTarget || !allSpeakerIds.includes(bulkSpeakerTarget)) {
+            setBulkSpeakerTarget(allSpeakerIds[0]);
+        }
+    }, [allSpeakerIds, bulkSpeakerTarget]);
 
     /** Apply overrides to produce the rendered/exported segments. */
     const effectiveSegments = useMemo<DiarizedSegment[]>(() => {
@@ -194,6 +217,80 @@ export default function Transcript({ transcribedData }: Props) {
         setEditing(null);
     };
 
+    const selectedSet = useMemo(
+        () => new Set(selectedSegmentIndices),
+        [selectedSegmentIndices],
+    );
+
+    const toggleSegmentSelection = (
+        segmentIndex: number,
+        options?: { shiftKey?: boolean },
+    ) => {
+        setSelectedSegmentIndices((prev) => {
+            if (options?.shiftKey && selectionAnchor !== null) {
+                const start = Math.min(selectionAnchor, segmentIndex);
+                const end = Math.max(selectionAnchor, segmentIndex);
+                const range = Array.from(
+                    { length: end - start + 1 },
+                    (_, idx) => start + idx,
+                );
+                return Array.from(new Set([...prev, ...range])).sort(
+                    (a, b) => a - b,
+                );
+            }
+            if (prev.includes(segmentIndex)) {
+                return prev.filter((i) => i !== segmentIndex);
+            }
+            return [...prev, segmentIndex].sort((a, b) => a - b);
+        });
+        setSelectionAnchor(segmentIndex);
+    };
+
+    const clearSelection = () => {
+        setSelectedSegmentIndices([]);
+        setSelectionAnchor(null);
+    };
+
+    const selectAllSegments = () => {
+        setSelectedSegmentIndices(effectiveSegments.map((_, i) => i));
+        if (effectiveSegments.length > 0) {
+            setSelectionAnchor(0);
+        }
+    };
+
+    const assignSpeakerToSelected = (speakerId: string) => {
+        if (!speakerId || selectedSegmentIndices.length === 0) return;
+        setOverrides((prev) => {
+            const next = { ...prev };
+            for (const index of selectedSegmentIndices) {
+                const original = segments?.[index]?.speaker;
+                if (original === speakerId) {
+                    delete next[index];
+                } else {
+                    next[index] = speakerId;
+                }
+            }
+            return next;
+        });
+        setEditing(null);
+    };
+
+    const addAndAssignNewSpeakerToSelected = () => {
+        if (selectedSegmentIndices.length === 0) return;
+        const taken = new Set(allSpeakerIds);
+        const id = nextSpeakerId(taken);
+        setExtraSpeakers((prev) => [...prev, id]);
+        setOverrides((prev) => {
+            const next = { ...prev };
+            for (const index of selectedSegmentIndices) {
+                next[index] = id;
+            }
+            return next;
+        });
+        setBulkSpeakerTarget(id);
+        setEditing(null);
+    };
+
 
     return (
         <div
@@ -238,6 +335,61 @@ export default function Transcript({ transcribedData }: Props) {
                     Identifying speakers… (this may take a while on long audio)
                 </div>
             )}
+            {hasSpeakers && (
+                <div className='w-full mb-2 bg-slate-50 rounded-lg p-2 ring-1 ring-slate-200 flex flex-wrap items-center gap-2 text-sm'>
+                    <span className='text-slate-700'>
+                        Multi-select: {selectedSegmentIndices.length} selected
+                    </span>
+                    <button
+                        type='button'
+                        className='px-2 py-1 rounded bg-white ring-1 ring-slate-300 hover:bg-slate-100 disabled:opacity-50'
+                        onClick={selectAllSegments}
+                        disabled={effectiveSegments.length === 0}
+                    >
+                        Select all
+                    </button>
+                    <button
+                        type='button'
+                        className='px-2 py-1 rounded bg-white ring-1 ring-slate-300 hover:bg-slate-100 disabled:opacity-50'
+                        onClick={clearSelection}
+                        disabled={selectedSegmentIndices.length === 0}
+                    >
+                        Clear
+                    </button>
+                    <select
+                        className='bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-1.5 disabled:opacity-50'
+                        value={bulkSpeakerTarget}
+                        onChange={(e) => setBulkSpeakerTarget(e.target.value)}
+                        disabled={allSpeakerIds.length === 0}
+                        aria-label='Assign selected to speaker'
+                    >
+                        {allSpeakerIds.map((id) => (
+                            <option key={id} value={id}>
+                                {displayName(id)}
+                            </option>
+                        ))}
+                    </select>
+                    <button
+                        type='button'
+                        className='px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
+                        onClick={() => assignSpeakerToSelected(bulkSpeakerTarget)}
+                        disabled={
+                            selectedSegmentIndices.length === 0 ||
+                            !bulkSpeakerTarget
+                        }
+                    >
+                        Apply to selected
+                    </button>
+                    <button
+                        type='button'
+                        className='px-2 py-1 rounded bg-white text-blue-600 ring-1 ring-blue-200 hover:bg-blue-50 disabled:opacity-50'
+                        onClick={addAndAssignNewSpeakerToSelected}
+                        disabled={selectedSegmentIndices.length === 0}
+                    >
+                        + New speaker for selected
+                    </button>
+                </div>
+            )}
             {hasSpeakers
                 ? effectiveSegments.map((seg, i) => {
                       const isRenaming =
@@ -253,6 +405,23 @@ export default function Transcript({ transcribedData }: Props) {
                               className='w-full flex flex-col mb-2 bg-white rounded-lg p-4 shadow-xl shadow-black/5 ring-1 ring-slate-700/10'
                           >
                               <div className='flex flex-row items-start'>
+                                  <div className='mr-3 mt-1'>
+                                      <input
+                                          type='checkbox'
+                                          checked={selectedSet.has(i)}
+                                          onChange={(e) =>
+                                              toggleSegmentSelection(i, {
+                                                  shiftKey:
+                                                      (
+                                                          e.nativeEvent as MouseEvent
+                                                      ).shiftKey,
+                                              })
+                                          }
+                                          aria-label={`Select line ${
+                                              i + 1
+                                          } for bulk edits`}
+                                      />
+                                  </div>
                                   <div className='mr-5 tabular-nums'>
                                       {formatAudioTimestamp(seg.start)}
                                   </div>

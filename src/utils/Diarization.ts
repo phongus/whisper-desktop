@@ -21,6 +21,11 @@ export interface DiarizedSegment {
     text: string;
 }
 
+interface NormalizeSpeakerSegmentsOptions {
+    maxMergeGapSeconds?: number;
+    orphanTurnSeconds?: number;
+}
+
 const UNKNOWN_SPEAKER = "Unknown";
 
 /**
@@ -101,6 +106,72 @@ export function groupBySpeaker(
         }
     }
     return grouped;
+}
+
+/**
+ * Smooth diarization output so tiny turn flips do not dominate the final
+ * transcript labeling. This primarily helps far-field meeting audio where
+ * very short backchannels often get mislabeled.
+ */
+export function normalizeSpeakerSegments(
+    segments: SpeakerSegment[],
+    options: NormalizeSpeakerSegmentsOptions = {},
+): SpeakerSegment[] {
+    if (segments.length <= 1) return [...segments];
+
+    const maxMergeGapSeconds = options.maxMergeGapSeconds ?? 0.2;
+    const orphanTurnSeconds = options.orphanTurnSeconds ?? 0.9;
+
+    const sorted = [...segments]
+        .filter((s) => s.end > s.start)
+        .sort((a, b) => a.start - b.start);
+
+    if (sorted.length <= 1) return sorted;
+
+    // First pass: merge same-speaker neighbors separated by tiny gaps.
+    const merged: SpeakerSegment[] = [];
+    for (const seg of sorted) {
+        const last = merged[merged.length - 1];
+        if (
+            last &&
+            last.speaker === seg.speaker &&
+            seg.start - last.end <= maxMergeGapSeconds
+        ) {
+            last.end = Math.max(last.end, seg.end);
+        } else {
+            merged.push({ ...seg });
+        }
+    }
+
+    // Second pass: absorb very short "orphan" turns sandwiched between the
+    // same speaker on both sides (A-B-A where B is extremely short).
+    for (let i = 1; i < merged.length - 1; i += 1) {
+        const prev = merged[i - 1];
+        const curr = merged[i];
+        const next = merged[i + 1];
+        const currDuration = curr.end - curr.start;
+
+        if (
+            currDuration <= orphanTurnSeconds &&
+            prev.speaker === next.speaker &&
+            curr.speaker !== prev.speaker
+        ) {
+            curr.speaker = prev.speaker;
+        }
+    }
+
+    // Final pass: collapse adjacent entries with identical speaker labels.
+    const flattened: SpeakerSegment[] = [];
+    for (const seg of merged) {
+        const last = flattened[flattened.length - 1];
+        if (last && last.speaker === seg.speaker) {
+            last.end = Math.max(last.end, seg.end);
+        } else {
+            flattened.push({ ...seg });
+        }
+    }
+
+    return flattened;
 }
 
 /**
