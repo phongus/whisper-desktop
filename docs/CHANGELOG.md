@@ -2,6 +2,13 @@
 
 All notable changes to Whisper Desktop will be documented here.
 
+## [1.4.0] - 2026-10-19
+### Added
+- Click-to-edit transcript lines, with or without speaker labels.
+- Save text corrections with Enter or by clicking away, cancel with Escape, and insert newlines with Shift+Enter.
+- TXT and JSON exports include corrected transcript text while preserving timestamps and speaker assignments.
+- Editing is available after transcription and speaker identification finish; corrections reset for a new transcript.
+
 ## [Unreleased]
 ### Added
 - Diarization scaffolding (Phase 1 — shared work):

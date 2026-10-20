@@ -28,6 +28,71 @@ function nextSpeakerId(taken: Set<string>): string {
     return `Speaker ${taken.size + 1}`;
 }
 
+function EditableTranscriptText({
+    text,
+    lineNumber,
+    disabled,
+    onSave,
+}: {
+    text: string;
+    lineNumber: number;
+    disabled: boolean;
+    onSave: (text: string) => void;
+}) {
+    const [isEditing, setIsEditing] = useState(false);
+    const [draft, setDraft] = useState("");
+
+    useEffect(() => {
+        setIsEditing(false);
+    }, [text, disabled]);
+
+    const save = () => {
+        onSave(draft);
+        setIsEditing(false);
+    };
+
+    return (
+        <div className='relative flex-1 min-w-0'>
+            <button
+                type='button'
+                className={`block w-full min-h-[1.5rem] text-left whitespace-pre-wrap break-words rounded hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:hover:bg-transparent disabled:cursor-text ${
+                    isEditing ? "invisible" : ""
+                }`}
+                aria-label={`Edit transcript line ${lineNumber}`}
+                aria-hidden={isEditing}
+                title='Edit transcript text'
+                disabled={disabled || isEditing}
+                onClick={() => {
+                    setDraft(text);
+                    setIsEditing(true);
+                }}
+            >
+                {isEditing ? `${draft}\u200b` : text}
+            </button>
+            {isEditing && (
+                <textarea
+                    autoFocus
+                    aria-label={`Edit transcript line ${lineNumber}`}
+                    className='absolute inset-0 block w-full h-full min-h-[1.5rem] resize-none overflow-hidden whitespace-pre-wrap break-words rounded focus:outline-none focus:ring-2 focus:ring-blue-300'
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onBlur={save}
+                    onKeyDown={(event) => {
+                        if (event.nativeEvent.isComposing) return;
+                        if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            save();
+                        } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            setIsEditing(false);
+                        }
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
 export default function Transcript({ transcribedData }: Props) {
     const divRef = useRef<HTMLDivElement>(null);
 
@@ -35,6 +100,12 @@ export default function Transcript({ transcribedData }: Props) {
     // state below as overrides + name map; we never mutate the underlying
     // diarization output.
     const segments = transcribedData?.segments;
+    const chunks = transcribedData?.chunks;
+    const [textOverrides, setTextOverrides] = useState<Record<number, string>>(
+        {},
+    );
+    const textEditingDisabled =
+        !!transcribedData?.isBusy || !!transcribedData?.diarizing;
 
     // Map of original speaker ID -> user-chosen display name (e.g. "Alex").
     const [nameMap, setNameMap] = useState<Record<string, string>>({});
@@ -58,14 +129,13 @@ export default function Transcript({ transcribedData }: Props) {
     // Selected speaker target used by the bulk assign controls.
     const [bulkSpeakerTarget, setBulkSpeakerTarget] = useState("");
 
-    // Reset all per-transcript edits when the segments reference changes
-    // (i.e. a new transcription started). Same audio re-rendered = same
-    // reference, so user edits stick during the "Identifying speakers…"
-    // phase that swaps in segments after the fact.
     const segmentsRef = useRef<DiarizedSegment[] | undefined>(undefined);
+    const chunksRef = useRef(chunks);
     useEffect(() => {
-        if (segmentsRef.current !== segments) {
+        if (segmentsRef.current !== segments || chunksRef.current !== chunks) {
             segmentsRef.current = segments;
+            chunksRef.current = chunks;
+            setTextOverrides({});
             setNameMap({});
             setOverrides({});
             setExtraSpeakers([]);
@@ -74,7 +144,7 @@ export default function Transcript({ transcribedData }: Props) {
             setBulkSpeakerTarget("");
             setSelectionAnchor(null);
         }
-    }, [segments]);
+    }, [segments, chunks]);
 
     // All speaker IDs known to this transcript (from diarization + manually
     // added). Used to populate the reassign menu.
@@ -102,9 +172,23 @@ export default function Transcript({ transcribedData }: Props) {
         if (!segments) return [];
         return segments.map((s, i) => ({
             ...s,
+            text: textOverrides[i] ?? s.text,
             speaker: overrides[i] ?? s.speaker,
         }));
-    }, [segments, overrides]);
+    }, [segments, overrides, textOverrides]);
+
+    const effectiveChunks = useMemo(
+        () =>
+            chunks?.map((chunk, index) => ({
+                ...chunk,
+                text: textOverrides[index] ?? chunk.text,
+            })) ?? [],
+        [chunks, textOverrides],
+    );
+
+    const saveText = (index: number, text: string) => {
+        setTextOverrides((prev) => ({ ...prev, [index]: text }));
+    };
 
     /** Same segments but with display names baked in (used on export). */
     const exportSegments = useMemo<SpeakerSegment[] & DiarizedSegment[]>(() => {
@@ -131,8 +215,7 @@ export default function Transcript({ transcribedData }: Props) {
                 .map((s) => `[${s.speaker}] ${s.text.trim()}`)
                 .join("\n");
         } else {
-            const chunks = transcribedData?.chunks ?? [];
-            text = chunks
+            text = effectiveChunks
                 .map((chunk) => chunk.text)
                 .join("")
                 .trim();
@@ -146,7 +229,7 @@ export default function Transcript({ transcribedData }: Props) {
         if (exportSegments.length > 0) {
             jsonData = JSON.stringify(groupBySpeaker(exportSegments), null, 2);
         } else {
-            jsonData = JSON.stringify(transcribedData?.chunks ?? [], null, 2);
+            jsonData = JSON.stringify(effectiveChunks, null, 2);
             // post-process the JSON to make it more readable
             const regex = /(    "timestamp": )\[\s+(\S+)\s+(\S+)\s+\]/gm;
             jsonData = jsonData.replace(regex, "$1[$2 $3]");
@@ -401,7 +484,7 @@ export default function Transcript({ transcribedData }: Props) {
                           editing.segmentIndex === i;
                       return (
                           <div
-                              key={`${i}-${seg.text}`}
+                              key={i}
                               className='w-full flex flex-col mb-2 bg-white rounded-lg p-4 shadow-xl shadow-black/5 ring-1 ring-slate-700/10'
                           >
                               <div className='flex flex-row items-start'>
@@ -498,7 +581,12 @@ export default function Transcript({ transcribedData }: Props) {
                                           </>
                                       )}
                                   </div>
-                                  <div className='flex-1'>{seg.text}</div>
+                                  <EditableTranscriptText
+                                      text={seg.text}
+                                      lineNumber={i + 1}
+                                      disabled={textEditingDisabled}
+                                      onSave={(text) => saveText(i, text)}
+                                  />
                               </div>
                               {isReassigning && (
                                   <div
@@ -548,16 +636,20 @@ export default function Transcript({ transcribedData }: Props) {
                           </div>
                       );
                   })
-                : transcribedData?.chunks &&
-                  transcribedData.chunks.map((chunk, i) => (
+                : effectiveChunks.map((chunk, i) => (
                       <div
-                          key={`${i}-${chunk.text}`}
+                          key={i}
                           className='w-full flex flex-row mb-2 bg-white rounded-lg p-4 shadow-xl shadow-black/5 ring-1 ring-slate-700/10'
                       >
                           <div className='mr-5'>
                               {formatAudioTimestamp(chunk.timestamp[0])}
                           </div>
-                          {chunk.text}
+                          <EditableTranscriptText
+                              text={chunk.text}
+                              lineNumber={i + 1}
+                              disabled={textEditingDisabled}
+                              onSave={(text) => saveText(i, text)}
+                          />
                       </div>
                   ))}
             {transcribedData && !transcribedData.isBusy && (
